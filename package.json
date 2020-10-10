@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "circomlib": "^0.2.4",
+    "dotenv": "^8.2.0",
+    "tronweb": "^3.1.0"
+  }
+}
