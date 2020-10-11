@@ -12,7 +12,6 @@
 */
 
 pragma solidity >=0.4.23 <0.6.0;
-// pragma experimental ABIEncoderV2;
 
 import "./ReentrancyGuard.sol";
 import "./SafeMath.sol";
@@ -240,24 +239,21 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
     
     /** @dev lock commitment, this operation can be only called by note holder */
     function lockERC20Batch (
-        bytes32[]   calldata    _hashkeys,
-        bytes32[]   calldata    _commitments,
-        bytes32[]   calldata    _descriptions
+        bytes32             _hashkey,
+        string   calldata   _description
     ) external payable nonReentrant {
-        for(uint256 i = 0; i < _hashkeys.length; i++) _lock(_hashkeys[i], bytes32ToString(_commitments[i]), bytes32ToString(_descriptions[i]));
+        _lock(_hashkey, _description);
     }
     
     function _lock(
         bytes32 _hashkey,
-        string memory _commitment,
         string memory _description
-    ) internal returns(bytes32) {
-        bytes32 _recipientHashKey = getHashkey(_commitment);
-        require(msg.sender == commitments[_hashkey].sender || _hashkey == _recipientHashKey || msg.sender == councilAddress, 'Locker must be recipient, sender or council');
+    ) internal {
+        require(msg.sender == commitments[_hashkey].sender, 'Locker must be recipient, sender or council');
         
         lockReason[_hashkey] = LockReason(
             _description, 
-            1, 
+            1,
             block.timestamp,
             _hashkey,
             commitments[_hashkey].amount,
@@ -266,7 +262,6 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
             false,
             address(0x0)
         );
-        return(_hashkey);
     }
     
     function getLockReason(bytes32 _hashkey) public view returns(
@@ -308,9 +303,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
     function unlockByParties(bytes32 _hashkey, string calldata _commitment, address payable _recipient) external nonReentrant returns(bool) {
         require(_recipient != address(0x0));
         LockReason memory lock = lockReason[_hashkey];
-        
         bytes32 _recipientHashKey = getHashkey(_commitment);
-
         require(msg.sender == commitments[_hashkey].sender || _hashkey == _recipientHashKey, 'Must be called by recipient or original sender');
         bool unlock = false;
         if(lock.status == 1) {
