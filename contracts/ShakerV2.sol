@@ -152,7 +152,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
     
         commitments[_hashkey].amount = (commitments[_hashkey].amount).sub(refundAmount);
         commitments[_hashkey].status = commitments[_hashkey].amount <= 0 ? false : true;
-        totalAmount = totalAmount.sub(refundAmount);
+        totalBalance = totalBalance.sub(refundAmount);
 
         emit Withdrawal(_commitment, _fee, refundAmount, block.timestamp);
     }
@@ -289,6 +289,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
             // If the council decided to return back money to the sender
             if(_recipient == commitments[_hashkey].sender) {
                 _processWithdraw(_recipient, address(0x0), 0, commitments[_hashkey].amount);
+                totalBalance = totalBalance.sub(commitments[_hashkey].amount);
                 commitments[_hashkey].amount = 0;
                 commitments[_hashkey].status = false;
             }
@@ -300,33 +301,46 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
      * This is 1st step if dispute happend
      * _recipient is only effective while it is depositer's address, that mean the the depositer will refund. Otherwise, just unlock the commitment, the original recipient will withdraw as usual.
      */
-    function unlockByParties(bytes32 _hashkey, string calldata _commitment, address payable _recipient) external nonReentrant returns(bool) {
+    function unlockByParties(bytes32 _hashkey, bytes32 _commitment, address payable _recipient) public returns(bool) {
         require(_recipient != address(0x0));
-        LockReason memory lock = lockReason[_hashkey];
-        bytes32 _recipientHashKey = getHashkey(_commitment);
-        require(msg.sender == commitments[_hashkey].sender || _hashkey == _recipientHashKey, 'Must be called by recipient or original sender');
+        bytes32 _recipientHashKey = getHashkey(bytes32ToString(_commitment));
+        bool isSender = msg.sender == commitments[_hashkey].sender;
+        bool isRecipent = _hashkey == _recipientHashKey;
+
+        require(isSender || isRecipent, 'Must be called by recipient or original sender');
+        
         bool unlock = false;
-        if(lock.status == 1) {
-            if(lock.recipientAgree && msg.sender == commitments[_hashkey].sender && !lock.senderAgree && _recipient == lock.newRecipient) {
+        if(lockReason[_hashkey].status == 1) {
+            if(lockReason[_hashkey].recipientAgree && isSender && !lockReason[_hashkey].senderAgree && _recipient == lockReason[_hashkey].newRecipient) {
                 unlock = true;
-                lock.senderAgree = true;
-            } else if(!lock.recipientAgree && _hashkey == _recipientHashKey && lock.senderAgree && _recipient == lock.newRecipient) {
+                lockReason[_hashkey].senderAgree = true;
+            } else if(!lockReason[_hashkey].recipientAgree && isRecipent && lockReason[_hashkey].senderAgree && _recipient == lockReason[_hashkey].newRecipient) {
                 unlock = true;
-                lock.recipientAgree = true;
-            } else if(_hashkey == _recipientHashKey && !lock.recipientAgree) {
-                lock.recipientAgree = true;
-                lock.newRecipient = _recipient;
-            } else if(msg.sender == commitments[_hashkey].sender && !lock.senderAgree) {
-                lock.senderAgree = true;
-                lock.newRecipient = _recipient;
-            } else if(lock.recipientAgree && lock.senderAgree) {
-                unlock = true;
+                lockReason[_hashkey].recipientAgree = true;
+            } else if(isRecipent && !lockReason[_hashkey].recipientAgree) {
+                lockReason[_hashkey].recipientAgree = true;
+                lockReason[_hashkey].newRecipient = _recipient;
+                return true;
+            } else if(isSender && !lockReason[_hashkey].senderAgree) {
+                lockReason[_hashkey].senderAgree = true;
+                lockReason[_hashkey].newRecipient = _recipient;
+                return true;
             }
             if(unlock) {
-                lock.status = 2;
+                lockReason[_hashkey].status = 2;
                 // If the council decided to return back money to the sender
+                // lockReason[_hashkey].newRecipient = address(0x0);
+                // lockReason[_hashkey].locker = address(0x0);
+                // lockReason[_hashkey].description = '';
+                // lockReason[_hashkey].datetime = 0;
+                // lockReason[_hashkey].hashKey = 0;
+                // lockReason[_hashkey].refund = 0;
+                // lockReason[_hashkey].senderAgree = false;
+                // lockReason[_hashkey].recipientAgree = false;
+
                 if(_recipient == commitments[_hashkey].sender) {
                     _processWithdraw(_recipient, address(0x0), 0, commitments[_hashkey].amount);
+                    totalBalance = totalBalance.sub(commitments[_hashkey].amount);
                     commitments[_hashkey].amount = 0;
                     commitments[_hashkey].status = false;
                 }
@@ -339,6 +353,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         }
     }
     
+
     /**
      * Cancel effectiveTime and change cheque to at sight
      */
@@ -348,8 +363,9 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         return true;
     }
     
-    function getEffectiveTime(bytes32 _hashkey) external view returns(uint256) {
-        return commitments[_hashkey].effectiveTime;
+    function getDepositDataByHashkey(bytes32 _hashkey) external view returns(uint256 effectiveTime, uint256 amount) {
+        effectiveTime = commitments[_hashkey].effectiveTime;
+        amount = commitments[_hashkey].amount;
     }
 
     /** @dev set common fee and fee rate */

@@ -95,11 +95,13 @@ console.log(addressHex);
 
 // sendRawTransactino();
 
+addResource();
+
 // tronWeb.trx.listTokens(10, 0).then(result => console.log('token list', result));
 
 // getCallResult();
 
-getSend();
+// getSend();
 
 async function getCallResult() {
   let contract = await tronWeb.contract().at('41cdf5f8fc14dc967035d667488da5729d6220aa75');
@@ -119,8 +121,14 @@ async function isConnected() {
   return await tronWeb.isConnected();
 }
 
+async function addResource() {
+  const tradeobj = await freezeBalance(0); // 0- bandwidth, 1- ENERGY
+  const signedtxn = await tronWeb.trx.sign(tradeobj, privateKey);
+  const receipt = await tronWeb.trx.sendRawTransaction(signedtxn);
+  console.log('receipt', receipt);
+}
+
 async function sendRawTransactino() {
-  // const tradeobj = await freezeBalance(1); // 0- bandwidth, 1- ENERGY
   // const tradeobj = await createAssetObject();
   const tradeobj = await triggerSmartContractSet();
   // const tradeobj = await getHash();
@@ -227,5 +235,5 @@ async function getContract(contractAddress) {
 }
 
 async function freezeBalance(type) {
-  return await tronWeb.transactionBuilder.freezeBalance(tronWeb.toSun(5000), 3, type === 0 ? "BANDWIDTH" : "ENERGY", address, address);
+  return await tronWeb.transactionBuilder.freezeBalance(tronWeb.toSun(1000), 3, type === 0 ? "BANDWIDTH" : "ENERGY", address, address);
 }
