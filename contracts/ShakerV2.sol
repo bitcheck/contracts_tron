@@ -24,6 +24,8 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
 
     address public operator;            // Super operator account to control the contract
     address public councilAddress;      // Council address of DAO
+    uint256 public councilJudgementFee = 0; // Council charge for judgement
+    uint256 public councilJudgementFeeRate = 1700; // If the desired rate is 17%, commonFeeRate should set to 1700
 
     struct Commitment {                 // Deposit Commitment
         bool        status;             // If there is no this commitment or balance is zeor, false
@@ -46,18 +48,17 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
     
     // If withdrawal is not throught relayer, use this rate. Total fee is: commoneFee + amount * commonFeeRate. 
     // If the desired rate is 4%, commonFeeRate should set to 400
-    uint256 public commonFeeRate = 0; 
+    uint256 public commonFeeRate = 25; // 0.25% 
     
     struct LockReason {
         string  description;
-        uint8   status; // 1- locked, 2- unlocked, 0- never happend
+        uint8   status; // 1- locked, 2- unlocked by parties, 0- never happend, 3- unlocked by council
         uint256 datetime;
-        bytes32 hashKey;
         uint256 refund;
-        address locker;
+        address payable locker;
         bool    recipientAgree;
         bool    senderAgree;
-        address newRecipient;
+        bool    toCouncil;
     }
     // locakReason key is hashKey = hash(commitment, recipient)
     mapping(bytes32 => LockReason) private lockReason;
@@ -77,7 +78,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         _;
     }
     
-    event Deposit(address sender, bytes32 hashkey, uint256 amount, uint256 timestamp);
+    event Deposit(address sender, bytes32 hashkey, uint256 amount);//, uint256 timestamp);
     event Withdrawal(string commitment, uint256 fee, uint256 amount, uint256 timestamp);
 
     constructor(
@@ -85,6 +86,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         address _commonWithdrawAddress
     ) public {
         operator = _operator;
+        councilAddress = _operator;
         commonWithdrawAddress = _commonWithdrawAddress;
     }
 
@@ -116,7 +118,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         totalAmount = totalAmount.add(_amount);
         totalBalance = totalBalance.add(_amount);
 
-        emit Deposit(msg.sender, _hashKey, _amount, block.timestamp);
+        emit Deposit(msg.sender, _hashKey, _amount);//, block.timestamp);
     }
 
     function _processDeposit(uint256 _amount) internal;
@@ -158,7 +160,8 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
     }
 
     function _processWithdraw(address payable _recipient, address _relayer, uint256 _fee, uint256 _refund) internal;
-
+    function _safeErc20Transfer(address _to, uint256 _amount) internal;
+    
     function getHashkey(string memory _commitment) internal view returns(bytes32) {
         string memory commitAndTo = concat(_commitment, addressToString(msg.sender));
         return keccak256(abi.encodePacked(commitAndTo));
@@ -198,7 +201,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         commitments[_oldHashKey].status = commitments[_oldHashKey].amount <= 0 ? false : true;
 
         emit Withdrawal(_oldCommitment,  0, refundAmount, block.timestamp);
-        emit Deposit(msg.sender, _newHashKey, refundAmount, block.timestamp);
+        emit Deposit(msg.sender, _newHashKey, refundAmount);//, block.timestamp);
     }
     
     /** @dev whether a note is already spent */
@@ -240,13 +243,15 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
     /** @dev lock commitment, this operation can be only called by note holder */
     function lockERC20Batch (
         bytes32             _hashkey,
+        uint256             _refund,
         string   calldata   _description
     ) external payable nonReentrant {
-        _lock(_hashkey, _description);
+        _lock(_hashkey, _refund, _description);
     }
     
     function _lock(
         bytes32 _hashkey,
+        uint256 _refund,
         string memory _description
     ) internal {
         require(msg.sender == commitments[_hashkey].sender, 'Locker must be recipient, sender or council');
@@ -255,105 +260,97 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
             _description, 
             1,
             block.timestamp,
-            _hashkey,
-            commitments[_hashkey].amount,
+            // _hashkey,
+            _refund == 0 ? commitments[_hashkey].amount : _refund,
             msg.sender,
             false,
             false,
-            address(0x0)
+            false
         );
     }
     
     function getLockReason(bytes32 _hashkey) public view returns(
-        string memory description, 
-        uint8 status, 
-        uint256 datetime, 
-        bytes32 hashKey, 
-        uint256 refund, 
-        address locker, 
-        bool recipientAgree, 
-        bool senderAgree, 
-        address newRecipient
+        string memory   description, 
+        uint8           status, 
+        uint256         datetime, 
+        // bytes32      hashKey, 
+        uint256         refund, 
+        address         locker, 
+        bool            recipientAgree,
+        bool            senderAgree,
+        bool            toCouncil
     ) {
         LockReason memory data = lockReason[_hashkey];
-        return (data.description, data.status, data.datetime, data.hashKey, data.refund, data.locker, data.recipientAgree, data.senderAgree, data.newRecipient);
+        return (
+            data.description, 
+            data.status, 
+            data.datetime, 
+            // data.hashKey, 
+            data.refund, 
+            data.locker, 
+            data.recipientAgree,
+            data.senderAgree,
+            data.toCouncil
+        );
         
     }
     
-    /** @dev unlock commitment by council */
-    // _recipient is only effective while it is depositer's address, that mean the the depositer will refund. Otherwise, just unlock the commitment, the original recipient will withdraw as usual.
-    function unlockByCouncil(bytes32 _hashkey, address payable _recipient) external nonReentrant onlyCouncil {
-        require(_recipient != address(0x0));
-        if(lockReason[_hashkey].status == 1) {
-            lockReason[_hashkey].status = 2;
+    function unlockByCouncil(bytes32 _hashkey, uint8 _result) external nonReentrant onlyCouncil {
+        // _result = 1: sender win
+        // _result = 2: recipient win
+        require(_result == 1 || _result == 2);
+        if(lockReason[_hashkey].status == 1 && lockReason[_hashkey].toCouncil) {
+            lockReason[_hashkey].status = 3;
             // If the council decided to return back money to the sender
-            if(_recipient == commitments[_hashkey].sender) {
-                _processWithdraw(_recipient, address(0x0), 0, commitments[_hashkey].amount);
-                totalBalance = totalBalance.sub(commitments[_hashkey].amount);
-                commitments[_hashkey].amount = 0;
-                commitments[_hashkey].status = false;
+            uint256 councilFee = getJudgementFee(lockReason[_hashkey].refund);
+            if(_result == 1) {
+                _processWithdraw(lockReason[_hashkey].locker, councilAddress, councilFee, lockReason[_hashkey].refund);
+                totalBalance = totalBalance.sub(lockReason[_hashkey].refund);
+                commitments[_hashkey].amount = (commitments[_hashkey].amount).sub(lockReason[_hashkey].refund);
+                commitments[_hashkey].status = commitments[_hashkey].amount == 0 ? false : true;
+            } else {
+                lockReason[_hashkey].status = 3;
+                _safeErc20Transfer(councilAddress, councilFee);
+                totalBalance = totalBalance.sub(councilFee);
+                commitments[_hashkey].amount = (commitments[_hashkey].amount).sub(councilFee);
+                commitments[_hashkey].status = commitments[_hashkey].amount == 0 ? false : true;
             }
         }
     }
     
     /**
-     * Both of parties should agree with the new recipient address and unlock the commitment
+     * recipient should agree to let sender refund, otherwise, will bring to the council to make a judgement
      * This is 1st step if dispute happend
-     * _recipient is only effective while it is depositer's address, that mean the the depositer will refund. Otherwise, just unlock the commitment, the original recipient will withdraw as usual.
      */
-    function unlockByParties(bytes32 _hashkey, bytes32 _commitment, address payable _recipient) public returns(bool) {
-        require(_recipient != address(0x0));
+    function unlockByRecipent(bytes32 _hashkey, bytes32 _commitment, uint8 _status) external nonReentrant {
         bytes32 _recipientHashKey = getHashkey(bytes32ToString(_commitment));
         bool isSender = msg.sender == commitments[_hashkey].sender;
         bool isRecipent = _hashkey == _recipientHashKey;
 
         require(isSender || isRecipent, 'Must be called by recipient or original sender');
-        
-        bool unlock = false;
-        if(lockReason[_hashkey].status == 1) {
-            if(lockReason[_hashkey].recipientAgree && isSender && !lockReason[_hashkey].senderAgree && _recipient == lockReason[_hashkey].newRecipient) {
-                unlock = true;
-                lockReason[_hashkey].senderAgree = true;
-            } else if(!lockReason[_hashkey].recipientAgree && isRecipent && lockReason[_hashkey].senderAgree && _recipient == lockReason[_hashkey].newRecipient) {
-                unlock = true;
-                lockReason[_hashkey].recipientAgree = true;
-            } else if(isRecipent && !lockReason[_hashkey].recipientAgree) {
-                lockReason[_hashkey].recipientAgree = true;
-                lockReason[_hashkey].newRecipient = _recipient;
-                return true;
-            } else if(isSender && !lockReason[_hashkey].senderAgree) {
-                lockReason[_hashkey].senderAgree = true;
-                lockReason[_hashkey].newRecipient = _recipient;
-                return true;
-            }
-            if(unlock) {
-                lockReason[_hashkey].status = 2;
-                // If the council decided to return back money to the sender
-                // lockReason[_hashkey].newRecipient = address(0x0);
-                // lockReason[_hashkey].locker = address(0x0);
-                // lockReason[_hashkey].description = '';
-                // lockReason[_hashkey].datetime = 0;
-                // lockReason[_hashkey].hashKey = 0;
-                // lockReason[_hashkey].refund = 0;
-                // lockReason[_hashkey].senderAgree = false;
-                // lockReason[_hashkey].recipientAgree = false;
+        require(_status == 1 || _status == 2);
+        require(lockReason[_hashkey].status == 1);
 
-                if(_recipient == commitments[_hashkey].sender) {
-                    _processWithdraw(_recipient, address(0x0), 0, commitments[_hashkey].amount);
-                    totalBalance = totalBalance.sub(commitments[_hashkey].amount);
-                    commitments[_hashkey].amount = 0;
-                    commitments[_hashkey].status = false;
-                }
-                return true;
+        if(isSender) {
+            // Sender accept to keep cheque available
+            lockReason[_hashkey].status = _status;
+            lockReason[_hashkey].senderAgree = _status == 2;
+        } else if(isRecipent) {
+            // recipient accept to refund back to sender
+            lockReason[_hashkey].status = _status;
+            lockReason[_hashkey].recipientAgree = _status == 2;
+            // return back to sender
+            if(_status == 2) {
+                _processWithdraw(commitments[_hashkey].sender, address(0x0), 0, lockReason[_hashkey].refund);
+                totalBalance = totalBalance.sub(lockReason[_hashkey].refund);
+                commitments[_hashkey].amount = (commitments[_hashkey].amount).sub(lockReason[_hashkey].refund);
+                commitments[_hashkey].status = commitments[_hashkey].amount == 0 ? false : true;
             } else {
-                return false;
+                lockReason[_hashkey].toCouncil = true;
             }
-        } else {
-          return false;
         }
     }
     
-
     /**
      * Cancel effectiveTime and change cheque to at sight
      */
@@ -377,6 +374,15 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
     /** @dev caculate the fee according to amount */
     function getFee(uint256 _amount) internal view returns(uint256) {
         return _amount * commonFeeRate / 10000 + commonFee;
+    }
+    
+    function updateCouncilJudgementFee(uint256 _fee, uint256 _rate) external nonReentrant onlyCouncil {
+        councilJudgementFee = _fee;
+        councilJudgementFeeRate = _rate;
+    }
+    
+    function getJudgementFee(uint256 _amount) internal view returns(uint256) {
+        return _amount * councilJudgementFeeRate / 10000 + councilJudgementFee;        
     }
 
 }
