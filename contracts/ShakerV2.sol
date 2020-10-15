@@ -14,8 +14,8 @@
 pragma solidity >=0.4.23 <0.6.0;
 
 import "./ReentrancyGuard.sol";
-import "./SafeMath.sol";
 import "./StringUtils.sol";
+import "./ShakerTokenManager.sol";
 
 contract ShakerV2 is ReentrancyGuard, StringUtils {
     using SafeMath for uint256;
@@ -27,11 +27,14 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
     uint256 public councilJudgementFee = 0; // Council charge for judgement
     uint256 public councilJudgementFeeRate = 1700; // If the desired rate is 17%, commonFeeRate should set to 1700
 
+    ShakerTokenManager tokenManager;
+    
     struct Commitment {                 // Deposit Commitment
-        bool        status;             // If there is no this commitment or balance is zeor, false
-        uint256     amount;             // Deposit balance
+        bool            status;             // If there is no this commitment or balance is zeor, false
+        uint256         amount;             // Deposit balance
         address payable sender;         // Who make this deposit
-        uint256     effectiveTime;      // Forward cheque time
+        uint256         effectiveTime;      // Forward cheque time
+        uint256         timestamp;          // Deposit timestamp
     }
     // Mapping of commitments, must be private. The key is hashKey = hash(commitment,recipient)
     // The contract will hide the recipient and commitment while make deposit.
@@ -52,7 +55,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
     
     struct LockReason {
         string  description;
-        uint8   status; // 1- locked, 2- unlocked by parties, 0- never happend, 3- unlocked by council
+        uint8   status; // 1- locked, 2- confirm by recipient, 0- never happend, 3- unlocked by council, 4- cancel by sender
         uint256 datetime;
         uint256 refund;
         address payable locker;
@@ -114,6 +117,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         commitments[_hashKey].amount = _amount;
         commitments[_hashKey].sender = msg.sender;
         commitments[_hashKey].effectiveTime = _effectiveTime < block.timestamp ? block.timestamp : _effectiveTime;
+        commitments[_hashKey].timestamp = block.timestamp;
 
         totalAmount = totalAmount.add(_amount);
         totalBalance = totalBalance.add(_amount);
@@ -156,6 +160,9 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         commitments[_hashkey].status = commitments[_hashkey].amount <= 0 ? false : true;
         totalBalance = totalBalance.sub(refundAmount);
 
+        uint256 _hours = (block.timestamp.sub(commitments[_hashkey].timestamp)).div(3600);
+        tokenManager.sendBonus(refundAmount, _hours, commitments[_hashkey].sender, msg.sender);
+        
         emit Withdrawal(_commitment, _fee, refundAmount, block.timestamp);
     }
 
@@ -196,6 +203,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         commitments[_newHashKey].status = true;
         commitments[_newHashKey].amount = refundAmount;
         commitments[_newHashKey].sender = msg.sender;
+        commitments[_newHashKey].timestamp = block.timestamp;
 
         commitments[_oldHashKey].amount = (commitments[_oldHashKey].amount).sub(refundAmount);
         commitments[_oldHashKey].status = commitments[_oldHashKey].amount <= 0 ? false : true;
@@ -333,12 +341,14 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
 
         if(isSender) {
             // Sender accept to keep cheque available
-            lockReason[_hashkey].status = _status;
+            lockReason[_hashkey].status = _status == 2 ? 4 : 1;
             lockReason[_hashkey].senderAgree = _status == 2;
+            lockReason[_hashkey].toCouncil = _status == 2;
         } else if(isRecipent) {
             // recipient accept to refund back to sender
             lockReason[_hashkey].status = _status;
             lockReason[_hashkey].recipientAgree = _status == 2;
+            lockReason[_hashkey].toCouncil = _status == 2;
             // return back to sender
             if(_status == 2) {
                 _processWithdraw(commitments[_hashkey].sender, address(0x0), 0, lockReason[_hashkey].refund);
@@ -381,8 +391,16 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         councilJudgementFeeRate = _rate;
     }
     
+    function updateSKRTokenManager(address _SKRTokenManagerAddress) external nonReentrant onlyOperator {
+        tokenManager = ShakerTokenManager(_SKRTokenManagerAddress);
+    }
+    
     function getJudgementFee(uint256 _amount) internal view returns(uint256) {
         return _amount * councilJudgementFeeRate / 10000 + councilJudgementFee;        
     }
 
+    // ######
+    function sendBonusTest(uint256 _amount, uint256 _hours, address _sender, address _recipient) external nonReentrant onlyOperator returns(bool) {
+      return tokenManager.sendBonus(_amount, _hours, _sender, _recipient);
+    }
 }
