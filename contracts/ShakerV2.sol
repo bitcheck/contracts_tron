@@ -399,8 +399,4 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         return _amount * councilJudgementFeeRate / 10000 + councilJudgementFee;        
     }
 
-    // ######
-    function sendBonusTest(uint256 _amount, uint256 _hours, address _sender, address _recipient) external nonReentrant onlyOperator returns(bool) {
-      return tokenManager.sendBonus(_amount, _hours, _sender, _recipient);
-    }
 }

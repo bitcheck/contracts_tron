@@ -74,12 +74,12 @@ module.exports = function(deployer, network, account) {
     // console.log('result', result)
     // console.log(account + ' 测试Mint数量', (await skrToken.balanceOf(account)).toString())
     // console.log(depositer + ' 测试Mint数量', (await skrToken.balanceOf(depositer)).toString())
-    const addr = 'TToFUXbkqVKgbqZWYykTBBigcBYYza8Hhp';
-    console.log(addr + ' 测试Mint数量', (await skrToken.balanceOf(addr)).toString())
+    // const addr = 'TToFUXbkqVKgbqZWYykTBBigcBYYza8Hhp';
+    // console.log(addr + ' 测试Mint数量', (await skrToken.balanceOf(addr)).toString())
 
-    console.log('totalSupply', (await skrToken.totalSupply()).toString());
+    // console.log('totalSupply', (await skrToken.totalSupply()).toString());
 
-    token = await Token.deployed();
-    console.log(account + ' 收取费用', (await skrTokenManager.getFee(100000000)).toString())
+    // token = await Token.deployed();
+    // console.log(account + ' 收取费用', (await skrTokenManager.getFee(100000000)).toString())
   })
 }
