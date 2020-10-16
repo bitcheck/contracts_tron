@@ -27,7 +27,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
     uint256 public councilJudgementFee = 0; // Council charge for judgement
     uint256 public councilJudgementFeeRate = 1700; // If the desired rate is 17%, commonFeeRate should set to 1700
 
-    ShakerTokenManager tokenManager;
+    ShakerTokenManager public tokenManager;
     
     struct Commitment {                 // Deposit Commitment
         bool            status;             // If there is no this commitment or balance is zeor, false
@@ -383,7 +383,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
     
     /** @dev caculate the fee according to amount */
     function getFee(uint256 _amount) internal view returns(uint256) {
-        return _amount * commonFeeRate / 10000 + commonFee;
+        return _amount.mul(commonFeeRate).div(10000).add(commonFee);
     }
     
     function updateCouncilJudgementFee(uint256 _fee, uint256 _rate) external nonReentrant onlyCouncil {

@@ -60,6 +60,8 @@ module.exports = function(deployer, network, account) {
     shaker = await ERC20ShakerV2.deployed();
     await shaker.updateSKRTokenManager(skrTokenManager.address);
     console.log('ERC20 Shaker has bound Token Manager\'s address\n===> ', skrTokenManager.address);
+    await skrTokenManager.setShakerContractAddress(shaker.address);
+    console.log('Token Manager has bound Shaker \'s address\n===> ', shaker.address);
 
     // Testing
     console.log('\n======测试======\n')
