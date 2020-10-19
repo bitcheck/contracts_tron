@@ -15,6 +15,7 @@ const TronWeb = require('tronweb')
 //   privateKey
 // );
 
+
 // Connect to local tronquickstart node
 const privateKey = process.env.PRIVATE_KEY_DEVELOPMENT;
 const tronWeb = new TronWeb(

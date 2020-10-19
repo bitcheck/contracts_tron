@@ -35,6 +35,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         address payable sender;         // Who make this deposit
         uint256         effectiveTime;      // Forward cheque time
         uint256         timestamp;          // Deposit timestamp
+        bool            canEndorse;
     }
     // Mapping of commitments, must be private. The key is hashKey = hash(commitment,recipient)
     // The contract will hide the recipient and commitment while make deposit.
@@ -118,6 +119,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         commitments[_hashKey].sender = msg.sender;
         commitments[_hashKey].effectiveTime = _effectiveTime < block.timestamp ? block.timestamp : _effectiveTime;
         commitments[_hashKey].timestamp = block.timestamp;
+        commitments[_hashKey].canEndorse = false;
 
         totalAmount = totalAmount.add(_amount);
         totalBalance = totalBalance.add(_amount);
@@ -193,6 +195,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         require(lockReason[_oldHashKey].status != 1, 'This deposit was locked');
         require(commitments[_oldHashKey].status, "Old commitment can not find");
         require(!commitments[_newHashKey].status, "The new commitment has been submitted or used out");
+        require(commitments[_oldHashKey].canEndorse, "Old commitment can not endorse");
         require(commitments[_oldHashKey].amount > 0, "No balance amount of this proof");
         uint256 refundAmount = _amount < commitments[_oldHashKey].amount ? _amount : commitments[_oldHashKey].amount; //Take all if _refund == 0
         require(refundAmount > 0, "Refund amount can not be zero");
@@ -204,6 +207,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         commitments[_newHashKey].amount = refundAmount;
         commitments[_newHashKey].sender = msg.sender;
         commitments[_newHashKey].timestamp = block.timestamp;
+        commitments[_newHashKey].canEndorse = false;
 
         commitments[_oldHashKey].amount = (commitments[_oldHashKey].amount).sub(refundAmount);
         commitments[_oldHashKey].status = commitments[_oldHashKey].amount <= 0 ? false : true;
@@ -370,6 +374,11 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         return true;
     }
     
+    function setCanEndorse(bytes32 _hashkey, bool status) external nonReentrant returns(bool) {
+        require(msg.sender == commitments[_hashkey].sender, 'Only sender can change this cheque to at sight');
+        commitments[_hashkey].canEndorse = status;
+    }
+
     function getDepositDataByHashkey(bytes32 _hashkey) external view returns(uint256 effectiveTime, uint256 amount) {
         effectiveTime = commitments[_hashkey].effectiveTime;
         amount = commitments[_hashkey].amount;
@@ -391,8 +400,8 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         councilJudgementFeeRate = _rate;
     }
     
-    function updateSKRTokenManager(address _SKRTokenManagerAddress) external nonReentrant onlyOperator {
-        tokenManager = ShakerTokenManager(_SKRTokenManagerAddress);
+    function updateBonusTokenManager(address _BonusTokenManagerAddress) external nonReentrant onlyOperator {
+        tokenManager = ShakerTokenManager(_BonusTokenManagerAddress);
     }
     
     function getJudgementFee(uint256 _amount) internal view returns(uint256) {

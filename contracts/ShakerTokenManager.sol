@@ -13,8 +13,8 @@
 
 pragma solidity >=0.4.23 <0.6.0;
 
-import "./Mocks/SKRToken.sol";
-// import "../ERC20/SKRToken.sol";
+import "./Mocks/BTCHToken.sol";
+// import "../ERC20/BTCHToken.sol";
 import "./ReentrancyGuard.sol";
 
 // import "./SafeMath.sol";
@@ -64,7 +64,7 @@ contract ShakerTokenManager is ReentrancyGuard {
     address public shakerContractAddress;
     address public tokenAddress;
     
-    SKRToken public token = SKRToken(tokenAddress);
+    BTCHToken public token = BTCHToken(tokenAddress);
     
     modifier onlyOperator {
         require(msg.sender == operator, "Only operator can call this function.");
@@ -72,7 +72,7 @@ contract ShakerTokenManager is ReentrancyGuard {
     }
 
     modifier onlyShaker {
-        require(msg.sender == shakerContractAddress, "Only shaker contract can call this function.");
+        require(msg.sender == shakerContractAddress, "Only bitcheck contract can call this function.");
         _;
     }
     
@@ -201,7 +201,7 @@ contract ShakerTokenManager is ReentrancyGuard {
 
     function setTokenAddress(address _address) external onlyOperator {
         tokenAddress = _address;
-        token = SKRToken(tokenAddress);
+        token = BTCHToken(tokenAddress);
     }
     
     function setShakerContractAddress(address _shakerContractAddress) external onlyOperator {

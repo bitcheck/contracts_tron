@@ -34,7 +34,7 @@ contract ERC20 is IERC20 {
 
     mapping (address => mapping (address => uint256)) private _allowances;
 
-    uint256 private _totalSupply;
+    uint256 internal _totalSupply;
 
     /**
      * @dev See {IERC20-totalSupply}.
