@@ -14,10 +14,8 @@
 pragma solidity >=0.4.23 <0.6.0;
 
 import "./Mocks/BTCHToken.sol";
-// import "../ERC20/BTCHToken.sol";
+import "./Mocks/ERC20.sol";
 import "./ReentrancyGuard.sol";
-
-// import "./SafeMath.sol";
 
 /**
  * The bonus will calculated with 5 factors:
@@ -43,29 +41,31 @@ import "./ReentrancyGuard.sol";
 contract ShakerTokenManager is ReentrancyGuard {
     using SafeMath for uint256;
     
-    uint256 public bonusTokenDecimals = 6; // bonus token decimals
-    uint256 public depositTokenDecimals = 6; // deposit and withdrawal token decimals
+    uint256 public bonusTokenDecimals = 6; // bonus token decimals, BTCH
+    uint256 public depositTokenDecimals = 6; // deposit and withdrawal token decimals, USDT
+
+    // Params
     uint256 public baseFactor = 50; // 50 means 0.05
     uint256[] public intervalOfDepositWithdraw = [1, 24, 48, 96, 192, 384, 720]; // hours of inverval between deposit and withdraw
     uint256[] public intervalOfDepositWithdrawFactor = [5000, 15000, 16800, 20600, 28600, 45500, 81500]; // 5000 will be devided by 1e5, means 0.05
-    uint256[] public stageFactors = [5000, 2500, 1250]; // Stage factor, 5000 means 5, 2500 means 2.5, etc.
-    uint256 public eachStageAmount = 1e11; // Each stage amount, if 100000, this amount will be 1e11 (including decimals)
+    uint256[] public stageFactors = [10000, 5000, 2500, 1250, 625]; // Stage factor, 5000 means 5, 2500 means 2.5, etc.
+    uint256 public eachStageAmount = 7200000 * 10 ** bonusTokenDecimals; // Each stage amount
     uint256[] public exponent = [2, 3];// means 2/3
-    uint256 public feeRate = 16667;// 16.67 will be 16667
-    uint256 public minChargeFeeAmount = 500 * 10 ** depositTokenDecimals;// Below this amount, will only charge  very special fee, like zero
+    uint256 public feeRate = 33333; // 33.333% will be 33333
+    uint256 public minChargeFeeAmount = 10 * 10 ** depositTokenDecimals;// Below this amount, will only charge  very special fee
     uint256 public minChargeFee = 0; // min amount of special charge.
-    uint256 public minChargeFeeRate = 10; // percent rate of special charge, if need to charge 0.1%, this will be set 10
-    uint256 public minMintAmount = 500 * 10 ** depositTokenDecimals;
-    uint256 public taxRate = 500;// means 5%
-    address public taxBereauAddress; // address to get tax
+    uint256 public minChargeFeeRate = 180; // percent rate of special charge, if need to charge 1.5%, this will be set 150
+    uint256 public minMintAmount = 10 * 10 ** depositTokenDecimals;
+    uint256 public taxRate = 2000;// means 20%
     uint256 public depositerShareRate = 5000; // depositer and withdrawer will share the bonus, this rate is for sender(depositer). 5000 means 0.500, 50%;
     
     address public operator;
+    address public taxBereauAddress; // address to get tax
     address public shakerContractAddress;
-    address public tokenAddress;
-    
+    address public tokenAddress; // BTCH token
+
     BTCHToken public token = BTCHToken(tokenAddress);
-    
+
     modifier onlyOperator {
         require(msg.sender == operator, "Only operator can call this function.");
         _;
@@ -76,19 +76,22 @@ contract ShakerTokenManager is ReentrancyGuard {
         _;
     }
     
-    constructor(address _shakerContractAddress) public {
+    constructor(address _shakerContractAddress, address _taxBereauAddress) public {
         operator = msg.sender;
-        taxBereauAddress = msg.sender;
         shakerContractAddress = _shakerContractAddress;
+        taxBereauAddress = _taxBereauAddress;
     }
     
     function sendBonus(uint256 _amount, uint256 _hours, address _depositer, address _withdrawer) external nonReentrant onlyShaker returns(bool) {
         uint256 mintAmount = this.getMintAmount(_amount, _hours);
+        if(mintAmount == 0) return true;
         uint256 tax = mintAmount.mul(taxRate).div(10000);
         uint256 notax = mintAmount.sub(tax);
-        token.mint(_depositer, (notax.mul(depositerShareRate).div(10000)));
-        token.mint(_withdrawer, (notax.mul(uint256(10000).sub(depositerShareRate)).div(10000)));
-        token.mint(taxBereauAddress, tax);
+        if(notax > 0) {
+          token.mint(_depositer, (notax.mul(depositerShareRate).div(10000)));
+          token.mint(_withdrawer, (notax.mul(uint256(10000).sub(depositerShareRate)).div(10000)));
+        }
+        if(tax > 0) token.mint(taxBereauAddress, tax);
         return true;
     }
     
@@ -125,10 +128,9 @@ contract ShakerTokenManager is ReentrancyGuard {
     
     function getStageFactor() internal view returns(uint256) {
         uint256 tokenTotalSupply = getTokenTotalSupply();
-        uint256 stage = tokenTotalSupply.div(eachStageAmount); // each 100,000 is a stage
-        return stageFactors[stage > 2 ? 2 : stage];
+        uint256 stage = tokenTotalSupply.div(eachStageAmount);
+        return stageFactors[stage > stageFactors.length - 1 ? stageFactors.length - 1 : stage];
     }
-    
 
     function getIntervalFactor(uint256 _hours) internal view returns(uint256) {
         uint256 id = intervalOfDepositWithdraw.length - 1;
@@ -187,15 +189,22 @@ contract ShakerTokenManager is ReentrancyGuard {
         stageFactors = _stageFactors;
     }
     
+    function setIntervalOfDepositWithdraw(uint256[] calldata _intervalOfDepositWithdraw, uint256[] calldata _intervalOfDepositWithdrawFactor) external onlyOperator {
+      intervalOfDepositWithdrawFactor = _intervalOfDepositWithdrawFactor;
+      intervalOfDepositWithdraw = _intervalOfDepositWithdraw;
+    }
+
     function setBaseFactor(uint256 _baseFactor) external onlyOperator {
         baseFactor = _baseFactor;
     }
     
     function setBonusTokenDecimals(uint256 _decimals) external onlyOperator {
+        require(_decimals >= 0);
         bonusTokenDecimals = _decimals;
     }
     
     function setDeositTokenDecimals(uint256 _decimals) external onlyOperator {
+        require(_decimals >= 0);
         depositTokenDecimals = _decimals;
     }
 
@@ -209,10 +218,12 @@ contract ShakerTokenManager is ReentrancyGuard {
     }
     
     function setExponent(uint256[] calldata _exp) external onlyOperator {
+        require(_exp.length == 2 && _exp[1] >= 0);
         exponent = _exp;
     }
     
     function setEachStageAmount(uint256 _eachStageAmount) external onlyOperator {
+        require(_eachStageAmount >= 0);
         eachStageAmount = _eachStageAmount;
     }
 
@@ -223,10 +234,12 @@ contract ShakerTokenManager is ReentrancyGuard {
     }
     
     function setMinMintAmount(uint256 _amount) external onlyOperator {
+        require(_amount >= 0);
         minMintAmount = _amount;
     }
     
     function setFeeRate(uint256 _feeRate) external onlyOperator {
+        require(_feeRate <= 100000 && _feeRate >= 0);
         feeRate = _feeRate;
     }
     
@@ -235,11 +248,18 @@ contract ShakerTokenManager is ReentrancyGuard {
     }
     
     function setTaxRate(uint256 _rate) external onlyOperator {
+        require(_rate <= 10000 && _rate >= 0);
         taxRate = _rate;
     }
-    
+
+    function setDepositerShareRate(uint256 _rate) external onlyOperator {
+        require(_rate <= 10000 && _rate >= 0);
+        depositerShareRate = _rate;
+    }
+
     function updateOperator(address _newOperator) external onlyOperator {
+        require(_newOperator != address(0));
         operator = _newOperator;
     }
-        
+
 }

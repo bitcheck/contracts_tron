@@ -19,9 +19,10 @@ import "./ERC20Detailed.sol";
 contract BTCHToken is ERC20, ERC20Detailed {
     address public authorizedContract;
     address public operator;
-    uint256 public maxSupply = 300000 * 10 ** 6;
+    uint256 public maxSupply = 36000000 * 10 ** 6;
     
     constructor (address _authorizedContract) public ERC20Detailed("BitCheck DAO", "BTCH", 6) {
+        // Decimal is 6
         operator = msg.sender;
         authorizedContract = _authorizedContract;
         // zero pre-mine

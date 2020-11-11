@@ -1,13 +1,14 @@
 /* global artifacts */
 require('dotenv').config({ path: '../.env' })
 const Token = artifacts.require('./Mocks/Token.sol')
-const ERC20ShakerV2 = artifacts.require('ERC20ShakerV2')
+const ERC20ShakerV2 = artifacts.require('./ERC20ShakerV2')
 const BTCHToken = artifacts.require('./Mocks/BTCHToken.sol')
-const ShakerTokenManager = artifacts.require('./Mocks/ShakerTokenManager.sol')
+const ShakerTokenManager = artifacts.require('./ShakerTokenManager.sol')
+const DividendPool = artifacts.require('./DividendPool.sol');
 
 module.exports = function(deployer, network, account) {
   return deployer.then(async () => {
-    const { ERC20_TOKEN, SHAKER_ADDRESS, FEE_ADDRESS, BTCH_TOKEN, BTCH_TOKEN_MANAGER } = process.env
+    const { ERC20_TOKEN, SHAKER_ADDRESS, FEE_ADDRESS, BTCH_TOKEN, BTCH_TOKEN_MANAGER, DIVIDEND_POOL, TAX_BEREAU } = process.env
 
     // Step 1: Deploy Test USDT, if on mainnet, set the real USDT address in .env
     let token = ERC20_TOKEN
@@ -19,9 +20,9 @@ module.exports = function(deployer, network, account) {
     if(shaker === '') {
       shaker = await deployer.deploy(
       ERC20ShakerV2,
-      account,
-      FEE_ADDRESS,
-      token,
+      account,  // Operator
+      FEE_ADDRESS,  // commonWithdrawAddress
+      token,        // USDT Token address
     )} else {
       shaker = await ERC20ShakerV2.deployed();
     }
@@ -32,7 +33,8 @@ module.exports = function(deployer, network, account) {
     if(btchTokenManager === '') {
       btchTokenManager = await deployer.deploy(
       ShakerTokenManager, 
-      shaker.address
+      shaker.address,
+      TAX_BEREAU
     )} else {
       btchTokenManager = await ShakerTokenManager.deployed()
     }
@@ -51,37 +53,48 @@ module.exports = function(deployer, network, account) {
     console.log('BTCH Token\'s address\n===> ', btchToken.address);
     console.log('BTCH Token has bound Token Manager\'s address \n===> ', btchTokenManager.address);
 
-    // Step 5: 将BTCHToken合约地址回写到BTCHTokenManager合约，以便manger合约调用BTCHToken合约的mint方法。
+    // Step 5: 
     btchTokenManager = await ShakerTokenManager.deployed();
     await btchTokenManager.setTokenAddress(btchToken.address);
     console.log('Token Manager has bound BTCH Token\'s address\n===> ', btchToken.address);
 
-    // Step 6: 将Token Manager合约地址回写到主 Shaker 合约中，方法：updateBTCHTokenManager
+    // Step 6:
+    await btchToken.updateAuthorizedContract(btchTokenManager.address);
+    console.log('BTCH Token has updated authorized manager contract \n===> ', btchTokenManager.address);
+    
+    // Step 7: 
     shaker = await ERC20ShakerV2.deployed();
     await shaker.updateBonusTokenManager(btchTokenManager.address);
     console.log('Shaker has bound Token Manager\'s address\n===> ', btchTokenManager.address);
     await btchTokenManager.setShakerContractAddress(shaker.address);
     console.log('Token Manager has bound Shaker \'s address\n===> ', shaker.address);
 
+    // Step 8:
+    let dividendPool = DIVIDEND_POOL;
+    if(dividendPool === '') {
+      dividendPool = await deployer.deploy(
+        DividendPool,
+        btchToken.address,
+        ERC20_TOKEN,
+        FEE_ADDRESS     // Send dividend from this address
+      )
+    } else {
+      dividendPool = await DividendPool.deployed();
+      await dividendPool.updateTokenAddress(btchToken.address);
+      await dividendPool.setDividentAddress(ERC20_TOKEN);
+      await dividendPool.setFeeAddress(FEE_ADDRESS);
+    }
+    console.log('Dividend Pool\'s address\n===> ', dividendPool.address);
+    console.log(`*** Please approve dividend pool contract ${dividendPool.address} to use 100000 USDT from fee account ${FEE_ADDRESS} MANULLY`);
+    console.log(`approve(${dividendPool.address}, 100000000000)`);
+
     // Testing
-    console.log('\n======测试======\n')
+    console.log('\n====== TEST ======\n')
+    console.log('btchTokenManager', btchTokenManager.address);
     btchToken = await BTCHToken.deployed();
+    console.log('eachStageAmount', (await btchTokenManager.eachStageAmount()).toString());
+    console.log('total supply', (await btchTokenManager.getTokenTotalSupply()).toString());
     const mintAmount = await btchTokenManager.getMintAmount(1000000000, 23);
     console.log('mint amount', mintAmount.toString());
-
-    // 必须要从shaker合约调用，不能直接调用manager或者BTCH代币合约，因为权限
-    // const depositer = 'TTEfHuHTcuzh8EYKU94s4374JPat7NCNhx';
-    // const withdrawer = 'TTJGwZbbkAT3NtEv14g88oNbmrgjsmNPAK';
-    // const result = await shaker.sendBonusTest(1000000000, 23, depositer, withdrawer);
-    // console.log('result', result)
-    // console.log(account + ' 测试Mint数量', (await btchToken.balanceOf(account)).toString())
-    // console.log(depositer + ' 测试Mint数量', (await btchToken.balanceOf(depositer)).toString())
-    // const addr = 'TToFUXbkqVKgbqZWYykTBBigcBYYza8Hhp';
-    // console.log(addr + ' 测试Mint数量', (await btchToken.balanceOf(addr)).toString())
-
-    // console.log('totalSupply', (await btchToken.totalSupply()).toString());
-
-    // token = await Token.deployed();
-    // console.log(account + ' 收取费用', (await btchTokenManager.getFee(100000000)).toString())
   })
 }

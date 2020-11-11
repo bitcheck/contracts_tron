@@ -36,6 +36,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         uint256         effectiveTime;      // Forward cheque time
         uint256         timestamp;          // Deposit timestamp
         bool            canEndorse;
+        bool            lockable;           // If can be locked/refund
     }
     // Mapping of commitments, must be private. The key is hashKey = hash(commitment,recipient)
     // The contract will hide the recipient and commitment while make deposit.
@@ -48,11 +49,11 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
     address public commonWithdrawAddress; 
     
     // If withdrawal is not throught relayer, use this common fee. Be care of decimal of token
-    uint256 public commonFee = 0; 
+    // uint256 public commonFee = 0; 
     
     // If withdrawal is not throught relayer, use this rate. Total fee is: commoneFee + amount * commonFeeRate. 
     // If the desired rate is 4%, commonFeeRate should set to 400
-    uint256 public commonFeeRate = 25; // 0.25% 
+    // uint256 public commonFeeRate = 25; // 0.25% 
     
     struct LockReason {
         string  description;
@@ -82,7 +83,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         _;
     }
     
-    event Deposit(address sender, bytes32 hashkey, uint256 amount);//, uint256 timestamp);
+    event Deposit(address sender, bytes32 hashkey, uint256 amount, uint256 timestamp);
     event Withdrawal(string commitment, uint256 fee, uint256 amount, uint256 timestamp);
 
     constructor(
@@ -120,11 +121,12 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         commitments[_hashKey].effectiveTime = _effectiveTime < block.timestamp ? block.timestamp : _effectiveTime;
         commitments[_hashKey].timestamp = block.timestamp;
         commitments[_hashKey].canEndorse = false;
+        commitments[_hashKey].lockable = true;
 
         totalAmount = totalAmount.add(_amount);
         totalBalance = totalBalance.add(_amount);
 
-        emit Deposit(msg.sender, _hashKey, _amount);//, block.timestamp);
+        emit Deposit(msg.sender, _hashKey, _amount, block.timestamp);
     }
 
     function _processDeposit(uint256 _amount) internal;
@@ -153,7 +155,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         require(refundAmount >= _fee, "Refund amount should be more than fee");
 
         address relayer = relayerWithdrawAddress[_relayer] == address(0x0) ? commonWithdrawAddress : relayerWithdrawAddress[_relayer];
-        uint256 _fee1 = getFee(refundAmount);
+        uint256 _fee1 = tokenManager.getFee(refundAmount);
         require(_fee1 <= refundAmount, "The fee can not be more than refund amount");
         uint256 _fee2 = relayerWithdrawAddress[_relayer] == address(0x0) ? _fee1 : _fee; // If not through relay, use commonFee
         _processWithdraw(msg.sender, relayer, _fee2, refundAmount);
@@ -175,7 +177,7 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         string memory commitAndTo = concat(_commitment, addressToString(msg.sender));
         return keccak256(abi.encodePacked(commitAndTo));
     }
-    
+
     function endorseERC20Batch(
         uint256[] calldata _amounts,
         bytes32[] calldata _oldCommitments,
@@ -208,12 +210,13 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         commitments[_newHashKey].sender = msg.sender;
         commitments[_newHashKey].timestamp = block.timestamp;
         commitments[_newHashKey].canEndorse = false;
+        commitments[_newHashKey].lockable = true;
 
         commitments[_oldHashKey].amount = (commitments[_oldHashKey].amount).sub(refundAmount);
         commitments[_oldHashKey].status = commitments[_oldHashKey].amount <= 0 ? false : true;
 
         emit Withdrawal(_oldCommitment,  0, refundAmount, block.timestamp);
-        emit Deposit(msg.sender, _newHashKey, refundAmount);//, block.timestamp);
+        emit Deposit(msg.sender, _newHashKey, refundAmount, block.timestamp);
     }
     
     /** @dev whether a note is already spent */
@@ -266,13 +269,14 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         uint256 _refund,
         string memory _description
     ) internal {
-        require(msg.sender == commitments[_hashkey].sender, 'Locker must be recipient, sender or council');
-        
+        require(msg.sender == commitments[_hashkey].sender, 'Locker must be sender');
+        require(commitments[_hashkey].lockable, 'This commitment must be lockable');
+        require(commitments[_hashkey].amount >= _refund, 'Balance amount must be enough');
+
         lockReason[_hashkey] = LockReason(
             _description, 
             1,
             block.timestamp,
-            // _hashkey,
             _refund == 0 ? commitments[_hashkey].amount : _refund,
             msg.sender,
             false,
@@ -285,7 +289,6 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         string memory   description, 
         uint8           status, 
         uint256         datetime, 
-        // bytes32      hashKey, 
         uint256         refund, 
         address         locker, 
         bool            recipientAgree,
@@ -297,7 +300,6 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
             data.description, 
             data.status, 
             data.datetime, 
-            // data.hashKey, 
             data.refund, 
             data.locker, 
             data.recipientAgree,
@@ -375,24 +377,22 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
     }
     
     function setCanEndorse(bytes32 _hashkey, bool status) external nonReentrant returns(bool) {
-        require(msg.sender == commitments[_hashkey].sender, 'Only sender can change this cheque to at sight');
+        require(msg.sender == commitments[_hashkey].sender, 'Only sender can change endorsable');
         commitments[_hashkey].canEndorse = status;
     }
 
-    function getDepositDataByHashkey(bytes32 _hashkey) external view returns(uint256 effectiveTime, uint256 amount) {
-        effectiveTime = commitments[_hashkey].effectiveTime;
-        amount = commitments[_hashkey].amount;
+    function setLockable(bytes32 _hashKey, bool status) external nonReentrant returns(bool) {
+        require(msg.sender == commitments[_hashKey].sender, 'Only sender can change lockable');
+        require(commitments[_hashKey].lockable == true && status == false, 'Can only change from lockable to non-lockable');
+        commitments[_hashKey].lockable = status;
+        commitments[_hashKey].canEndorse = true; // If the commitment can not be lock, it must be endorsed
     }
 
-    /** @dev set common fee and fee rate */
-    function updateCommonFee(uint256 _fee, uint256 _rate) external nonReentrant onlyOperator {
-        commonFee = _fee;
-        commonFeeRate = _rate;
-    }
-    
-    /** @dev caculate the fee according to amount */
-    function getFee(uint256 _amount) internal view returns(uint256) {
-        return _amount.mul(commonFeeRate).div(10000).add(commonFee);
+    function getDepositDataByHashkey(bytes32 _hashkey) external view returns(uint256 effectiveTime, uint256 amount, bool lockable, bool canEndorse) {
+        effectiveTime = commitments[_hashkey].effectiveTime;
+        amount = commitments[_hashkey].amount;
+        lockable = commitments[_hashkey].lockable;
+        canEndorse = commitments[_hashkey].canEndorse;
     }
     
     function updateCouncilJudgementFee(uint256 _fee, uint256 _rate) external nonReentrant onlyCouncil {
@@ -407,5 +407,4 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
     function getJudgementFee(uint256 _amount) internal view returns(uint256) {
         return _amount * councilJudgementFeeRate / 10000 + councilJudgementFee;        
     }
-
 }
