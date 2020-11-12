@@ -14,29 +14,31 @@
 pragma solidity >=0.4.23 <0.6.0;
 
 import "./ShakerV2.sol";
-import "./Mocks/ERC20.sol";
+// import "./Mocks/ERC20.sol";
 
 contract ERC20ShakerV2 is ShakerV2 {
   address public token;
-  ERC20 private erc20;
+  // ERC20 private erc20;
 
   constructor(
     address _operator,
     address _commonWithdrawAddress,
-    address _token
-  ) ShakerV2(_operator, _commonWithdrawAddress) public {
+    address _token,
+    address _vaultAddress
+  ) ShakerV2(_operator, _commonWithdrawAddress, _vaultAddress) public {
     token = _token;
-    erc20 = ERC20(token);
+    // erc20 = ERC20(token);
   }
 
-  function _processDeposit(uint256 _amount) internal {
+  function _processDeposit(uint256 _amount, address _to) internal {
     require(msg.value == 0, "ETH value is supposed to be 0 for ERC20 instance");
-    _safeErc20TransferFrom(msg.sender, address(this), _amount);
+    _safeErc20TransferFrom(msg.sender, _to, _amount);
   }
 
   function _processWithdraw(address payable _recipient, address _relayer, uint256 _fee, uint256 _refund) internal {
-    erc20.transfer(_recipient, _refund.sub(_fee));
-    if(_fee > 0) erc20.transfer(_relayer, _fee);
+    // erc20.transfer(_recipient, _refund.sub(_fee));
+    _safeErc20TransferFrom(vaultAddress, _recipient, _refund.sub(_fee));
+    if(_fee > 0) _safeErc20TransferFrom(vaultAddress, _relayer, _fee); //erc20.transfer(_relayer, _fee);
   }
 
   function _safeErc20TransferFrom(address _from, address _to, uint256 _amount) internal {

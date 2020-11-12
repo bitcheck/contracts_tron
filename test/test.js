@@ -25,7 +25,7 @@ const tronWeb = new TronWeb(
     privateKey,
 )
 
-const contractAddress = '41da24a55b3f83193fb9895cbe18e8652ed3ebb08c'; //######
+const contractAddress = '41da24a55b3f83193fb9895cbe18e8652ed3ebb08c';
 const commitment = '0x1ae657127872543e38148c602176b87ac68ef3958e5ef7c1d007bc07ee9772dd';
 
 /**

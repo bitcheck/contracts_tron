@@ -12,7 +12,7 @@ function main () {
   const contract = {
     contractName: 'Hasher',
     abi: genContract.abi,
-    bytecode: genContract.createCode('mimcsponge', 220) // ###### 需要用tron的方式编译 bytecode
+    bytecode: genContract.createCode('mimcsponge', 220)
   }
 
   fs.writeFileSync(outputPath, JSON.stringify(contract))
