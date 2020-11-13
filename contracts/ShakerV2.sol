@@ -20,14 +20,14 @@ import "./Vault.sol";
 
 contract ShakerV2 is ReentrancyGuard, StringUtils {
     using SafeMath for uint256;
-    uint256 public totalAmount = 0; // Total amount of deposit
-    uint256 public totalBalance = 0; // Total balance of deposit after Withdrawal
+    // uint256 public totalAmount = 0; // Total amount of deposit
+    // uint256 public totalBalance = 0; // Total balance of deposit after Withdrawal
 
     address public operator;            // Super operator account to control the contract
     address public councilAddress;      // Council address of DAO
     uint256 public councilJudgementFee = 0; // Council charge for judgement
     uint256 public councilJudgementFeeRate = 1700; // If the desired rate is 17%, commonFeeRate should set to 1700
-    uint256 public minReplyHours = 3 * 24;
+    uint256 public minReplyHours = 24;
 
     ShakerTokenManager public tokenManager;
     address public vaultAddress;
@@ -74,8 +74,8 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         _;
     }
     
-    event Deposit(address sender, bytes32 hashkey, uint256 amount, uint256 timestamp);
-    event Withdrawal(string commitment, uint256 fee, uint256 amount, uint256 timestamp);
+    // event Deposit(address sender, bytes32 hashkey, uint256 amount, uint256 timestamp);
+    // event Withdrawal(string commitment, uint256 fee, uint256 amount, uint256 timestamp);
 
     constructor(
         address _operator,
@@ -117,10 +117,13 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         vault.setCanEndorse(_hashKey, false);
         vault.setLockable(_hashKey, true);
         
-        totalAmount = totalAmount.add(_amount);
-        totalBalance = totalBalance.add(_amount);
+        // totalAmount = totalAmount.add(_amount);
+        // totalBalance = totalBalance.add(_amount);
+        vault.addTotalAmount(_amount);
+        vault.addTotalBalance(_amount);
 
-        emit Deposit(msg.sender, _hashKey, _amount, block.timestamp);
+        // emit Deposit(msg.sender, _hashKey, _amount, block.timestamp);
+        vault.sendDepositEvent(msg.sender, _hashKey, _amount, block.timestamp);
     }
 
     function _processDeposit(uint256 _amount, address _to) internal;
@@ -156,12 +159,14 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
     
         vault.setAmount(_hashkey, vault.getAmount(_hashkey).sub(refundAmount));
         vault.setStatus(_hashkey, vault.getAmount(_hashkey) <= 0 ? false : true);
-        totalBalance = totalBalance.sub(refundAmount);
+        // totalBalance = totalBalance.sub(refundAmount);
+        vault.subTotalBalance(refundAmount);
 
         uint256 _hours = (block.timestamp.sub(vault.getTimestamp(_hashkey))).div(3600);
         tokenManager.sendBonus(refundAmount, _hours, vault.getSender(_hashkey), msg.sender);
         
-        emit Withdrawal(_commitment, _fee, refundAmount, block.timestamp);
+        // emit Withdrawal(_commitment, _fee, refundAmount, block.timestamp);
+        vault.sendWithdrawEvent(_commitment, _fee, refundAmount, block.timestamp);
     }
 
     function _processWithdraw(address payable _recipient, address _relayer, uint256 _fee, uint256 _refund) internal;
@@ -209,8 +214,10 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         vault.setAmount(_oldHashKey, vault.getAmount(_oldHashKey).sub(refundAmount));
         vault.setStatus(_oldHashKey, vault.getAmount(_oldHashKey) <= 0 ? false : true);
 
-        emit Withdrawal(_oldCommitment,  0, refundAmount, block.timestamp);
-        emit Deposit(msg.sender, _newHashKey, refundAmount, block.timestamp);
+        // emit Withdrawal(_oldCommitment,  0, refundAmount, block.timestamp);
+        vault.sendWithdrawEvent(_oldCommitment,  0, refundAmount, block.timestamp);
+        // emit Deposit(msg.sender, _newHashKey, refundAmount, block.timestamp);
+        vault.sendDepositEvent(msg.sender, _newHashKey, refundAmount, block.timestamp);
     }
     
     /** @dev whether a note is already spent */
@@ -324,13 +331,15 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
             uint256 councilFee = getJudgementFee(lockReason[_hashkey].refund);
             if(_result == 1) {
                 _processWithdraw(lockReason[_hashkey].locker, councilAddress, councilFee, lockReason[_hashkey].refund);
-                totalBalance = totalBalance.sub(lockReason[_hashkey].refund);
+                // totalBalance = totalBalance.sub(lockReason[_hashkey].refund);
+                vault.subTotalBalance(lockReason[_hashkey].refund);
                 vault.setAmount(_hashkey, vault.getAmount(_hashkey).sub(lockReason[_hashkey].refund));
                 vault.setStatus(_hashkey, vault.getAmount(_hashkey) == 0 ? false : true);
             } else {
                 lockReason[_hashkey].status = 3;
                 _safeErc20Transfer(councilAddress, councilFee);
-                totalBalance = totalBalance.sub(councilFee);
+                // totalBalance = totalBalance.sub(councilFee);
+                vault.subTotalBalance(councilFee);
                 vault.setAmount(_hashkey, vault.getAmount(_hashkey).sub(councilFee));
                 vault.setStatus(_hashkey, vault.getAmount(_hashkey) == 0 ? false : true);
             }
@@ -347,8 +356,8 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         bool isRecipent = _hashkey == _recipientHashKey;
 
         require(isSender || isRecipent, 'Must be called by recipient or original sender');
-        require(_status == 1 || _status == 2);
-        require(lockReason[_hashkey].status == 1);
+        require(_status == 1 || _status == 2 || _status == 3, 'params can only be 1,2,3');
+        require(lockReason[_hashkey].status == 1, 'This commitment is not locked');
 
         if(isSender && block.timestamp >= lockReason[_hashkey].datetime && _status != 3) {
             // Sender accept to keep cheque available
@@ -367,7 +376,8 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         // return back to sender
         if(lockReason[_hashkey].status == 2 || lockReason[_hashkey].status == 5) {
             _processWithdraw(vault.getSender(_hashkey), address(0x0), 0, lockReason[_hashkey].refund);
-            totalBalance = totalBalance.sub(lockReason[_hashkey].refund);
+            // totalBalance = totalBalance.sub(lockReason[_hashkey].refund);
+            vault.subTotalBalance(lockReason[_hashkey].refund);
             vault.setAmount(_hashkey, vault.getAmount(_hashkey).sub(lockReason[_hashkey].refund));
             vault.setStatus(_hashkey, vault.getAmount(_hashkey) == 0 ? false : true);
         }
@@ -378,7 +388,11 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
      */
     function changeToAtSight(bytes32 _hashkey) external nonReentrant returns(bool) {
         require(msg.sender == vault.getSender(_hashkey), 'Only sender can change this cheque to at sight');
-        if(vault.getEffectiveTime(_hashkey) > block.timestamp) vault.setEffectiveTime(_hashkey, block.timestamp);
+        if(vault.getEffectiveTime(_hashkey) > block.timestamp) {
+          vault.setEffectiveTime(_hashkey, block.timestamp);
+          vault.setLockable(_hashkey, false);
+          vault.setCanEndorse(_hashkey, true);
+        }
         return true;
     }
     

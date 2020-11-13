@@ -14,10 +14,14 @@
 pragma solidity >=0.4.23 <0.6.0;
 
 import "./Mocks/ERC20.sol";
+import "./Mocks/SafeMath.sol";
 
 contract Vault {
+    using SafeMath for uint256;
     ERC20 private erc20;
     address public erc20Address;
+    uint256 public totalAmount = 0; // Total amount of deposit
+    uint256 public totalBalance = 0; // Total balance of deposit after Withdrawal
 
     struct Commitment {                 // Deposit Commitment
         bool            status;             // If there is no this commitment or balance is zeor, false
@@ -37,7 +41,18 @@ contract Vault {
     mapping(bytes32 => Commitment) private commitments; 
     address public operator;
     address public shakerContractAddress;
-    
+
+    event Deposit(address sender, bytes32 hashkey, uint256 amount, uint256 timestamp);
+    event Withdrawal(string commitment, uint256 fee, uint256 amount, uint256 timestamp);
+
+    function sendDepositEvent(address _sender, bytes32 _hashkey, uint256 _amount, uint256 _timestamp) external onlyShaker {
+      emit Deposit(_sender, _hashkey, _amount, _timestamp);
+    }
+
+    function sendWithdrawEvent(string calldata _commitment, uint256 _fee, uint256 _amount, uint256 _timestamp) external onlyShaker {
+      emit Withdrawal(_commitment, _fee, _amount, _timestamp);
+    }
+
     modifier onlyOperator {
         require(msg.sender == operator, "Only operator can call this function.");
         _;
@@ -156,5 +171,17 @@ contract Vault {
 
     function getShakerAllowance() external view returns(uint256) {
       return erc20.allowance(address(this), shakerContractAddress);
+    }
+
+    function addTotalAmount(uint256 _amount) external onlyShaker {
+        totalAmount = totalAmount.add(_amount);
+    }
+
+    function addTotalBalance(uint256 _amount) external onlyShaker {
+        totalBalance = totalBalance.add(_amount);
+    }
+
+    function subTotalBalance(uint256 _amount) external onlyShaker {
+        totalBalance = totalBalance.sub(_amount);
     }
 }
