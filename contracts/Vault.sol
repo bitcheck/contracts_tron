@@ -164,8 +164,8 @@ contract Vault {
 
     function updateShakerAddress(address _shaker, uint256 _allowance) external onlyOperator returns(bool) {
         shakerContractAddress = _shaker;
-        //Approve shaker contract
-        erc20.approve(shakerContractAddress, _allowance);
+        // Approve shaker contract
+        safeApprove(erc20Address, _shaker, _allowance);
         return true;
     }
 
@@ -183,5 +183,11 @@ contract Vault {
 
     function subTotalBalance(uint256 _amount) external onlyShaker {
         totalBalance = totalBalance.sub(_amount);
+    }
+
+    function safeApprove(address token, address to, uint value) internal {
+        // bytes4(keccak256(bytes('approve(address,uint256)')));
+        (bool success, bytes memory data) = token.call(abi.encodeWithSelector(0x095ea7b3, to, value));
+        require(success && (data.length == 0 || abi.decode(data, (bool))), 'TransferHelper: APPROVE_FAILED');
     }
 }

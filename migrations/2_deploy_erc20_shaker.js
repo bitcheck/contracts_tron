@@ -38,8 +38,8 @@ module.exports = function(deployer, network, account) {
       vault.address
     )} else {
       shaker = await ERC20ShakerV2.deployed();
-      await shaker.updateVault(vault.address);
     }
+    await shaker.updateVault(vault.address);
     console.log('ShakerV2\'s address \n===> ', shaker.address)
     vault = await Vault.deployed();
     await vault.updateShakerAddress(shaker.address, 10000000 * 10e6); // Approve shaker contract to use vault

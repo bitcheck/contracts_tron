@@ -20,8 +20,6 @@ import "./Vault.sol";
 
 contract ShakerV2 is ReentrancyGuard, StringUtils {
     using SafeMath for uint256;
-    // uint256 public totalAmount = 0; // Total amount of deposit
-    // uint256 public totalBalance = 0; // Total balance of deposit after Withdrawal
 
     address public operator;            // Super operator account to control the contract
     address public councilAddress;      // Council address of DAO
@@ -74,9 +72,6 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         _;
     }
     
-    // event Deposit(address sender, bytes32 hashkey, uint256 amount, uint256 timestamp);
-    // event Withdrawal(string commitment, uint256 fee, uint256 amount, uint256 timestamp);
-
     constructor(
         address _operator,
         address _commonWithdrawAddress,
@@ -117,8 +112,6 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         vault.setCanEndorse(_hashKey, false);
         vault.setLockable(_hashKey, true);
         
-        // totalAmount = totalAmount.add(_amount);
-        // totalBalance = totalBalance.add(_amount);
         vault.addTotalAmount(_amount);
         vault.addTotalBalance(_amount);
 
@@ -159,13 +152,11 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
     
         vault.setAmount(_hashkey, vault.getAmount(_hashkey).sub(refundAmount));
         vault.setStatus(_hashkey, vault.getAmount(_hashkey) <= 0 ? false : true);
-        // totalBalance = totalBalance.sub(refundAmount);
         vault.subTotalBalance(refundAmount);
 
         uint256 _hours = (block.timestamp.sub(vault.getTimestamp(_hashkey))).div(3600);
         tokenManager.sendBonus(refundAmount, _hours, vault.getSender(_hashkey), msg.sender);
         
-        // emit Withdrawal(_commitment, _fee, refundAmount, block.timestamp);
         vault.sendWithdrawEvent(_commitment, _fee, refundAmount, block.timestamp);
     }
 
@@ -331,14 +322,12 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
             uint256 councilFee = getJudgementFee(lockReason[_hashkey].refund);
             if(_result == 1) {
                 _processWithdraw(lockReason[_hashkey].locker, councilAddress, councilFee, lockReason[_hashkey].refund);
-                // totalBalance = totalBalance.sub(lockReason[_hashkey].refund);
                 vault.subTotalBalance(lockReason[_hashkey].refund);
                 vault.setAmount(_hashkey, vault.getAmount(_hashkey).sub(lockReason[_hashkey].refund));
                 vault.setStatus(_hashkey, vault.getAmount(_hashkey) == 0 ? false : true);
             } else {
                 lockReason[_hashkey].status = 3;
                 _safeErc20Transfer(councilAddress, councilFee);
-                // totalBalance = totalBalance.sub(councilFee);
                 vault.subTotalBalance(councilFee);
                 vault.setAmount(_hashkey, vault.getAmount(_hashkey).sub(councilFee));
                 vault.setStatus(_hashkey, vault.getAmount(_hashkey) == 0 ? false : true);
@@ -376,7 +365,6 @@ contract ShakerV2 is ReentrancyGuard, StringUtils {
         // return back to sender
         if(lockReason[_hashkey].status == 2 || lockReason[_hashkey].status == 5) {
             _processWithdraw(vault.getSender(_hashkey), address(0x0), 0, lockReason[_hashkey].refund);
-            // totalBalance = totalBalance.sub(lockReason[_hashkey].refund);
             vault.subTotalBalance(lockReason[_hashkey].refund);
             vault.setAmount(_hashkey, vault.getAmount(_hashkey).sub(lockReason[_hashkey].refund));
             vault.setStatus(_hashkey, vault.getAmount(_hashkey) == 0 ? false : true);
