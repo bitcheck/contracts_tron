@@ -14,50 +14,28 @@
 pragma solidity >=0.4.23 <0.6.0;
 
 import "./ShakerV2.sol";
+import "./Mocks/IERC20.sol";
 
 contract ERC20ShakerV2 is ShakerV2 {
   address public token;
 
   constructor(
-    address _operator,
     address _commonWithdrawAddress,
-    address _token,
-    address _vaultAddress
-  ) ShakerV2(_operator, _commonWithdrawAddress, _vaultAddress) public {
-    token = _token;
+    address _tokenAddress,
+    address _vaultAddress,
+    address _disputeManagerAddress
+  ) ShakerV2(msg.sender, _commonWithdrawAddress, _vaultAddress, _tokenAddress, _disputeManagerAddress) public {
+    token = _tokenAddress;
   }
 
   function _processDeposit(uint256 _amount, address _to) internal {
     require(msg.value == 0, "ETH value is supposed to be 0 for ERC20 instance");
-    _safeErc20TransferFrom(msg.sender, _to, _amount);
+    IERC20(token).transferFrom(msg.sender, _to, _amount);
   }
 
   function _processWithdraw(address payable _recipient, address _relayer, uint256 _fee, uint256 _refund) internal {
-    _safeErc20TransferFrom(vaultAddress, _recipient, _refund.sub(_fee));
-    if(_fee > 0) _safeErc20TransferFrom(vaultAddress, _relayer, _fee);
+    IERC20(token).transferFrom(vaultAddress, _recipient, _refund.sub(_fee));
+    if(_fee > 0) IERC20(token).transferFrom(vaultAddress, _relayer, _fee);
   }
 
-  function _safeErc20TransferFrom(address _from, address _to, uint256 _amount) internal {
-    (bool success, bytes memory data) = token.call(abi.encodeWithSelector(0x23b872dd /* transferFrom */, _from, _to, _amount));
-    require(success, "not enough allowed tokens");
-
-    // if contract returns some data lets make sure that is `true` according to standard
-    if (data.length > 0) {
-      require(data.length == 32, "data length should be either 0 or 32 bytes");
-      success = abi.decode(data, (bool));
-      require(success, "not enough allowed tokens. Token returns false.");
-    }
-  }
-
-  function _safeErc20Transfer(address _to, uint256 _amount) internal {
-    (bool success, bytes memory data) = token.call(abi.encodeWithSelector(0xa9059cbb /* transfer */, _to, _amount));
-    require(success, "not enough tokens");
-
-    // if contract returns some data lets make sure that is `true` according to standard
-    if (data.length > 0) {
-      require(data.length == 32, "data length should be either 0 or 32 bytes");
-      success = abi.decode(data, (bool));
-      require(success, "not enough tokens. Token returns false.");
-    }
-  }
 }

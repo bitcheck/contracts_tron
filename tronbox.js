@@ -14,7 +14,7 @@ module.exports = {
     shasta: {
       privateKey: process.env.PRIVATE_KEY_SHASTA,
       userFeePercentage: 100,
-      feeLimit: 1e8,      // 如果遇到缺乏Engergy无法部署，调高此参数，默认为1e8
+      feeLimit: 1e9,      // 如果遇到Out of Engergy无法部署，调高此参数，默认为1e8
       originEnergyLimit: 1e7,
       fullHost: 'https://api.shasta.trongrid.io',
       network_id: '2'
@@ -43,7 +43,7 @@ module.exports = {
             enabled: true,
             runs: 200
           },
-          // evmVersion: "byzantium"
+          evmVersion: "byzantium"
         }
       }
     }

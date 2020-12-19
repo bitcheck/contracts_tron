@@ -16,16 +16,12 @@ pragma solidity >=0.4.23 <0.6.0;
 import "./ERC20.sol";
 import "./ERC20Detailed.sol";
 
-contract BTCHToken is ERC20, ERC20Detailed {
-    address public authorizedContract;
+contract BCTToken is ERC20, ERC20Detailed {
     address public operator;
-    uint256 public maxSupply = 36000000 * 10 ** 6;
     
-    constructor (address _authorizedContract) public ERC20Detailed("BitCheck DAO", "BTCH", 6) {
-        // Decimal is 6
+    constructor () public ERC20Detailed("BitCheck Commitee Token", "BCT", 0) {
         operator = msg.sender;
-        authorizedContract = _authorizedContract;
-        // zero pre-mine
+        _mint(msg.sender, 21);
     }
     
     modifier onlyOperator {
@@ -33,19 +29,12 @@ contract BTCHToken is ERC20, ERC20Detailed {
         _;
     }
 
-    modifier onlyAuthorizedContract {
-        require(msg.sender == authorizedContract, "Only authorized contract can call this function.");
-        _;
-    }
-
-    function mint(address account, uint256 amount) public onlyAuthorizedContract {
-        if(_totalSupply.add(amount) > maxSupply) amount = maxSupply.sub(_totalSupply);
-        if(amount > 0) _mint(account, amount);
+    function mint(address account) public onlyOperator {
+        _mint(account, 1);
     }
     
-    function burn(address account, uint256 amount) public onlyAuthorizedContract {
-        if(_totalSupply < amount) amount = amount.sub(_totalSupply);
-        if(amount > 0) _burn(account, amount);
+    function burn(address account) public onlyOperator {
+        _burn(account, 1);
     }
     
     function updateOperator(address _newOperator) external onlyOperator {
@@ -53,9 +42,4 @@ contract BTCHToken is ERC20, ERC20Detailed {
         operator = _newOperator;
     }
     
-    function updateAuthorizedContract(address _authorizedContract) external onlyOperator {
-        require(_authorizedContract != address(0));
-        authorizedContract = _authorizedContract;
-    }
-
 }
