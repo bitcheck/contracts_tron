@@ -228,4 +228,10 @@ contract DisputeManager is ReentrancyGuard, StringUtils {
         councilJudgementFee = _fee;
         councilJudgementFeeRate = _rate;
     }
+    function updateShaker(address _shakerAddress) external nonReentrant onlyOperator {
+        shakerAddress = _shakerAddress;
+    }
+    function updateToken(address _tokenAddress) external nonReentrant onlyOperator {
+        tokenAddress = _tokenAddress;
+    }
 }

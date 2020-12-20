@@ -72,7 +72,7 @@ module.exports = function(deployer, network, account) {
     if(tokenLocker === '') {
       tokenLocker = await deployer.deploy(
         TokenLocker,
-        token,
+        btchToken.address,
         60,
         15552000 // 180days
       )
